@@ -5,9 +5,26 @@ ec2 = boto3.resource("ec2", region_name="us-east-1")
 # User data script to install MySQL on Ubuntu
 user_data_mysql = """#!/bin/bash
 apt update -y
-apt install -y mysql-server
+apt install -y mysql-server wget unzip
 systemctl enable mysql
 systemctl start mysql
+
+# Download Sakila
+until mysqladmin ping >/dev/null 2>&1; do
+  sleep 2
+done
+
+cd /tmp
+
+if [ ! -f sakila-db.zip ]; then
+  wget https://downloads.mysql.com/docs/sakila-db.zip
+fi
+
+unzip -o sakila-db.zip
+
+# Install Sakila database
+sudo mysql < sakila-db/sakila-schema.sql
+sudo mysql < sakila-db/sakila-data.sql
 """
 
 # Create 3 EC2 instances
@@ -39,3 +56,9 @@ for i, instance in enumerate(mysql_db_intances[1:], start=1):
 )
 
 print("3 t2.micro instances created with MySQL installed")
+
+# The instances ids in a file
+instance_ids = [j.id for j in mysql_db_intances]
+with open("mysql_instance_ids.txt", "w") as f:
+    for k in instance_ids:
+        f.write(k + "\n")
