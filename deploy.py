@@ -17,6 +17,7 @@ mysql_db_intances = ec2.create_instances(
     MinCount=3,
     MaxCount=3,
     KeyName="finalLabKey",
+    SecurityGroupIds=["sg-07eb91b8897bb1816"], # this sg opens the port 22 for ssh connexions
     UserData=user_data_mysql
 )
 
