@@ -16,7 +16,7 @@ mysql_db_intances = ec2.create_instances(
     InstanceType="t2.micro",
     MinCount=3,
     MaxCount=3,
-    KeyName="cloudtp",
+    KeyName="finalLabKey",
     UserData=user_data_mysql
 )
 
