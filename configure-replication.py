@@ -15,7 +15,9 @@ replica_ids = instance_ids[1:]
 
 ec2 = boto3.client("ec2", region_name=REGION)
 
+
 def get_public_ip(instance_id):
+    print("==== Getting instances public addresses ====")
     return ec2.describe_instances(
         InstanceIds=[instance_id]
     )["Reservations"][0]["Instances"][0]["PublicIpAddress"]
@@ -51,6 +53,7 @@ source_commands = [
     "sudo mysql -e \"FLUSH PRIVILEGES;\""
 ]
 
+print("==== Running configuration commands on the source ====")
 run_ssh_commands(source_ip, source_commands)
 
 time.sleep(10)
@@ -72,6 +75,8 @@ for idx, ip in enumerate(replica_ips, start=2):
         "MASTER_USER='estelle', MASTER_PASSWORD='estelle', MASTER_AUTO_POSITION=1;\"",
         "sudo mysql -e \"START SLAVE;\""
     ]
+
+    print(f"==== Running configuration commands on the replica{idx} ====")
 
     run_ssh_commands(ip, replica_commands)
 
