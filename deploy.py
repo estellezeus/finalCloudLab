@@ -27,6 +27,14 @@ sudo mysql < sakila-db/sakila-schema.sql
 sudo mysql < sakila-db/sakila-data.sql
 """
 
+large_instance_user_data = """#!/bin/bash
+apt update -y
+apt install -y python3-pip
+pip3 install flask pymysql boto3
+"""
+
+
+
 # Create 3 EC2 instances
 mysql_db_intances = ec2.create_instances(
     ImageId="ami-0c398cb65a93047f2",  # Ubuntu 22.04 LTS
@@ -62,3 +70,52 @@ instance_ids = [j.id for j in mysql_db_intances]
 with open("mysql_instance_ids.txt", "w") as f:
     for k in instance_ids:
         f.write(k + "\n")
+
+
+# Create the proxy instance
+proxy_instance = ec2.create_instances(
+    ImageId="ami-0c398cb65a93047f2",
+    InstanceType="t2.large",
+    MinCount=1,
+    MaxCount=1,
+    KeyName="finalLabKey",
+    SecurityGroupIds=["sg-07eb91b8897bb1816"],
+    UserData=large_instance_user_data,
+    TagSpecifications=[
+        {
+            "ResourceType": "instance",
+            "Tags": [
+                {"Key": "Name", "Value": "mysql-proxy"},
+                {"Key": "Role", "Value": "proxy"}
+            ]
+        }
+    ]
+)
+print("Proxy created:", proxy_instance[0].id)
+
+
+# Create the gateway instance
+
+gateway_instances = ec2.create_instances(
+    ImageId="ami-0c398cb65a93047f2",   # Ubuntu 22.04 LTS
+    InstanceType="t2.large",
+    MinCount=1,
+    MaxCount=1,
+    KeyName="finalLabKey",
+    SecurityGroupIds=["sg-07eb91b8897bb1816"],
+    UserData=large_instance_user_data,
+    TagSpecifications=[
+        {
+            "ResourceType": "instance",
+            "Tags": [
+                {"Key": "Name", "Value": "mysql-gateway"},
+                {"Key": "Role", "Value": "gateway"}
+            ]
+        }
+    ]
+)
+
+gateway_instance = gateway_instances[0]
+print("Gateway created:", gateway_instance.id)
+
+

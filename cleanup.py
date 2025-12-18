@@ -5,7 +5,7 @@ ec2 = boto3.resource("ec2", region_name="us-east-1")
 # Filtrer les instances par tag Role
 instances = ec2.instances.filter(
     Filters=[
-        {"Name": "tag:Role", "Values": ["manager", "worker"]},
+        {"Name": "tag:Role", "Values": ["manager", "worker", "gateway", "proxy"]},
         {"Name": "instance-state-name", "Values": ["pending", "running", "stopped"]}
     ]
 )
