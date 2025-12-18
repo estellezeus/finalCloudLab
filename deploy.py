@@ -1,5 +1,7 @@
 import boto3
 import requests
+from iam_setup import create_iam_role_and_profile
+
 
 
 ec2 = boto3.resource("ec2", region_name="us-east-1")
@@ -30,6 +32,13 @@ unzip -o sakila-db.zip
 # Install Sakila database
 sudo mysql < sakila-db/sakila-schema.sql
 sudo mysql < sakila-db/sakila-data.sql
+
+sudo mysql <<EOF
+CREATE USER IF NOT EXISTS 'estelle'@'%' IDENTIFIED BY 'estelle';
+GRANT ALL PRIVILEGES ON *.* TO 'estelle'@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+EOF
+
 """
 
 large_instance_user_data = """#!/bin/bash
@@ -40,11 +49,11 @@ pip3 install flask pymysql boto3
 
 proxy_user_data = """#!/bin/bash
 apt update -y
-apt install -y python3-pip
+apt install -y python3-pip awscli
 pip3 install flask pymysql boto3 requests
 
-curl -o /home/ubuntu/proxy.py https://github.com/estellezeus/finalCloudLab/blob/main/proxy.py
-python3 /home/ubuntu/proxy.py &
+curl -L -o /home/ubuntu/proxy.py https://raw.githubusercontent.com/estellezeus/finalCloudLab/refs/heads/main/proxy.py
+sleep 40 && python3 /home/ubuntu/proxy.py &
 
 """
 
@@ -79,12 +88,20 @@ for i, instance in enumerate(mysql_db_intances[1:], start=1):
 )
 
 print("3 t2.micro instances created with MySQL installed")
+for inst in mysql_db_intances:
+    inst.wait_until_running()
+    inst.reload()
+
 
 # The instances ids in a file
 instance_ids = [j.id for j in mysql_db_intances]
 with open("mysql_instance_ids.txt", "w") as f:
     for k in instance_ids:
         f.write(k + "\n")
+
+# Create role and profile
+print("==== Creating role and policy for the proxy ====")
+create_iam_role_and_profile()
 
 
 # Create the proxy instance
@@ -96,6 +113,9 @@ proxy_instance = ec2.create_instances(
     KeyName="finalLabKey",
     SecurityGroupIds=[SECURITY_GROUP_ID],
     UserData=proxy_user_data,
+    IamInstanceProfile={
+        "Name": "EC2-Proxy-Profile"
+    },
     TagSpecifications=[
         {
             "ResourceType": "instance",
@@ -107,6 +127,11 @@ proxy_instance = ec2.create_instances(
     ]
 )
 print("Proxy created:", proxy_instance[0].id)
+
+for inst in proxy_instance:
+    inst.wait_until_running()
+    inst.reload()
+
 
 
 # Create the gateway instance
@@ -132,6 +157,10 @@ gateway_instances = ec2.create_instances(
 
 gateway_instance = gateway_instances[0]
 print("Gateway created:", gateway_instance.id)
+
+for inst in gateway_instances:
+    inst.wait_until_running()
+    inst.reload()
 
 def get_my_public_ip():
     return requests.get("https://checkip.amazonaws.com").text.strip()

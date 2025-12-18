@@ -22,12 +22,12 @@ ec2 = boto3.client("ec2", region_name=AWS_REGION)
 def discover_mysql_instances():
     response = ec2.describe_instances(
         Filters=[
-            {"Name": "tag:Role", "Values": ["master", "worker"]},
+            {"Name": "tag:Role", "Values": ["manager", "worker"]},
             {"Name": "instance-state-name", "Values": ["running"]}
         ]
     )
 
-    master = None
+    manager = None
     workers = []
 
     for r in response["Reservations"]:
@@ -35,15 +35,15 @@ def discover_mysql_instances():
             role = next(t["Value"] for t in i["Tags"] if t["Key"] == "Role")
             ip = i["PrivateIpAddress"]
 
-            if role == "master":
-                master = ip
+            if role == "manager":
+                manager = ip
             elif role == "worker":
                 workers.append(ip)
 
-    if not master or not workers:
+    if not manager or not workers:
         raise RuntimeError("MySQL instances not discovered correctly")
 
-    return master, workers
+    return manager, workers
 
 MASTER_IP, WORKER_IPS = discover_mysql_instances()
 

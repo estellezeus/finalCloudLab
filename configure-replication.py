@@ -53,6 +53,20 @@ source_commands = [
     "sudo mysql -e \"FLUSH PRIVILEGES;\""
 ]
 
+def wait_for_ssh(ip, timeout=180):
+    import socket, time
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            sock = socket.create_connection((ip, 22), timeout=5)
+            sock.close()
+            return
+        except Exception:
+            time.sleep(5)
+    raise TimeoutError(f"SSH not available on {ip}")
+
+wait_for_ssh(source_ip)
+
 print("==== Running configuration commands on the source ====")
 run_ssh_commands(source_ip, source_commands)
 
