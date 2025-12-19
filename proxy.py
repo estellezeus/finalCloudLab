@@ -1,225 +1,122 @@
 from flask import Flask, request, jsonify
-import boto3
 import pymysql
-import random
-import subprocess
 import time
-import json
-from datetime import datetime
+import threading
 
-# =============================
-# CONFIGURATION
-# =============================
-AWS_REGION = "us-east-1"
-FORWARDING_STRATEGY = "custom"  # direct | random | custom
-
+# =========================
+# CONFIG
+# =========================
 MYSQL_USER = "estelle"
 MYSQL_PASSWORD = "estelle"
 MYSQL_DB = "sakila"
+MYSQL_PORT = 3306
 
-STATS_FILE = "/home/ubuntu/proxy_stats.json"
+INSTANCES_FILE = "/home/ubuntu/mysql_instance_ids.txt"
 
-# =============================
-# AWS DISCOVERY
-# =============================
-ec2 = boto3.client("ec2", region_name=AWS_REGION)
+app = Flask(__name__)
 
-def discover_mysql_instances():
-    response = ec2.describe_instances(
-        Filters=[
-            {"Name": "tag:Role", "Values": ["manager", "worker"]},
-            {"Name": "instance-state-name", "Values": ["running"]}
-        ]
-    )
+# =========================
+# LOAD INSTANCES
+# =========================
+with open(INSTANCES_FILE) as f:
+    ips = [line.strip() for line in f if line.strip()]
 
-    manager = None
-    workers = []
+MANAGER_IP = ips[0]
+WORKER_IPS = ips[1:]
 
-    for r in response["Reservations"]:
-        for i in r["Instances"]:
-            role = next(t["Value"] for t in i["Tags"] if t["Key"] == "Role")
-            ip = i["PrivateIpAddress"]
+print("Manager:", MANAGER_IP)
+print("Workers:", WORKER_IPS)
 
-            if role == "manager":
-                manager = ip
-            elif role == "worker":
-                workers.append(ip)
+worker_index = 0
+worker_lock = threading.Lock()
 
-    if not manager or len(workers) != 2:
-        raise RuntimeError("MySQL cluster not discovered correctly")
-
-    return manager, workers
-
-MANAGER_IP, WORKER_IPS = discover_mysql_instances()
-
-# =============================
-# DATABASE CONFIG
-# =============================
-MANAGER_DB = {
-    "host": MANAGER_IP,
-    "user": MYSQL_USER,
-    "password": MYSQL_PASSWORD,
-    "db": MYSQL_DB
-}
-
-WORKERS = [
-    {"host": WORKER_IPS[0], "user": MYSQL_USER, "password": MYSQL_PASSWORD, "db": MYSQL_DB},
-    {"host": WORKER_IPS[1], "user": MYSQL_USER, "password": MYSQL_PASSWORD, "db": MYSQL_DB}
-]
-
-# =============================
-# STATS
-# =============================
+# =========================
+# STATS (proxy only)
+# =========================
 STATS = {
-    "strategy": FORWARDING_STRATEGY,
-    "proxy": {"READ": 0, "WRITE": 0},
+    "proxy": {
+        "READ": 0,
+        "WRITE": 0
+    },
     "manager": {
-        "host": MANAGER_IP,
         "READ": 0,
         "WRITE": 0
     },
     "workers": {
-        "worker1": {
-            "host": WORKERS[0]["host"],
-            "READ": 0,
-            "WRITE": 0
-        },
-        "worker2": {
-            "host": WORKERS[1]["host"],
-            "READ": 0,
-            "WRITE": 0
-        }
-    },
-    "last_updated": None
+        ip: {"READ": 0, "WRITE": 0} for ip in WORKER_IPS
+    }
 }
 
-def save_stats():
-    STATS["last_updated"] = datetime.utcnow().isoformat()
-    with open(STATS_FILE, "w") as f:
-        json.dump(STATS, f, indent=2)
+# =========================
+# HELPERS
+# =========================
+def is_read_query(query: str) -> bool:
+    return query.strip().lower().startswith("select")
 
-# =============================
-# APP
-# =============================
-app = Flask(__name__)
+def get_next_worker():
+    global worker_index
+    with worker_lock:
+        ip = WORKER_IPS[worker_index]
+        worker_index = (worker_index + 1) % len(WORKER_IPS)
+    return ip
 
-# =============================
-# UTILS
-# =============================
-def get_query_type(query):
-    query = query.strip().lower()
-    if query.startswith("select"):
-        return "READ"
-    return "WRITE"
-
-def connect(db):
+def connect(ip):
     return pymysql.connect(
-        host=db["host"],
-        user=db["user"],
-        password=db["password"],
-        database=db["db"],
-        autocommit=True,
-        cursorclass=pymysql.cursors.DictCursor,
-        connect_timeout=3
+        host=ip,
+        user=MYSQL_USER,
+        password=MYSQL_PASSWORD,
+        database=MYSQL_DB,
+        port=MYSQL_PORT,
+        connect_timeout=3,
+        cursorclass=pymysql.cursors.DictCursor
     )
 
-def ping(host):
-    try:
-        result = subprocess.run(
-            ["ping", "-c", "1", host],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=2
-        )
-        for line in result.stdout.splitlines():
-            if "time=" in line:
-                return float(line.split("time=")[1].split()[0])
-    except Exception:
-        pass
-    return float("inf")
-
-# =============================
-# STRATEGIES
-# =============================
-def direct_strategy():
-    return MANAGER_DB
-
-def random_strategy(query_type):
-    if query_type == "WRITE":
-        return MANAGER_DB
-    return random.choice(WORKERS)
-
-def custom_strategy(query_type):
-    if query_type == "WRITE":
-        return MANAGER_DB
-
-    latencies = {w["host"]: ping(w["host"]) for w in WORKERS}
-    best_host = min(latencies, key=latencies.get)
-
-    for w in WORKERS:
-        if w["host"] == best_host:
-            return w
-
-def choose_target(query):
-    query_type = get_query_type(query)
-
-    if FORWARDING_STRATEGY == "direct":
-        return direct_strategy()
-
-    if FORWARDING_STRATEGY == "random":
-        return random_strategy(query_type)
-
-    return custom_strategy(query_type)
-
-# =============================
-# QUERY EXECUTION
-# =============================
-def execute_query(db, query):
-    conn = connect(db)
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(query)
-            if query.strip().lower().startswith("select"):
-                return cursor.fetchall()
-            return {"status": "OK"}
-    finally:
-        conn.close()
-
-# =============================
+# =========================
 # ROUTES
-# =============================
+# =========================
 @app.route("/query", methods=["POST"])
-def handle_query():
-    data = request.json
-    query = data.get("query")
+def query():
+    data = request.get_json()
+    sql = data.get("query")
 
-    if not query:
-        return jsonify({"error": "No SQL query provided"}), 400
+    if not sql:
+        return jsonify({"error": "Missing query"}), 400
 
-    query_type = get_query_type(query)
-    STATS["proxy"][query_type] += 1
+    read = is_read_query(sql)
+    qtype = "READ" if read else "WRITE"
 
-    target = choose_target(query)
+    STATS["proxy"][qtype] += 1
 
-    # Update routing stats
-    if target["host"] == MANAGER_DB["host"]:
-        STATS["manager"][query_type] += 1
-    elif target["host"] == STATS["workers"]["worker1"]["host"]:
-        STATS["workers"]["worker1"][query_type] += 1
-    elif target["host"] == STATS["workers"]["worker2"]["host"]:
-        STATS["workers"]["worker2"][query_type] += 1
+    target_ip = None
+
+    if read:
+        target_ip = get_next_worker()
+        STATS["workers"][target_ip]["READ"] += 1
+    else:
+        target_ip = MANAGER_IP
+        STATS["manager"]["WRITE"] += 1
 
     start = time.time()
-    result = execute_query(target, query)
+
+    try:
+        conn = connect(target_ip)
+        with conn.cursor() as cursor:
+            cursor.execute(sql)
+            if read:
+                result = cursor.fetchall()
+            else:
+                conn.commit()
+                result = {"rows_affected": cursor.rowcount}
+        conn.close()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
     duration = round((time.time() - start) * 1000, 2)
 
-    save_stats()
-
     return jsonify({
-        "strategy": FORWARDING_STRATEGY,
-        "query_type": query_type,
-        "target": target["host"],
+        "strategy": "proxy-no-boto3",
+        "target": target_ip,
+        "type": qtype,
         "duration_ms": duration,
         "result": result
     })
@@ -228,11 +125,8 @@ def handle_query():
 def stats():
     return jsonify(STATS)
 
-# =============================
-# MAIN
-# =============================
+# =========================
+# START
+# =========================
 if __name__ == "__main__":
-    print("Proxy running")
-    print("Manager:", MANAGER_IP)
-    print("Workers:", WORKER_IPS)
     app.run(host="0.0.0.0", port=5000)
