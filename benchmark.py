@@ -5,8 +5,8 @@ import boto3
 
 AWS_REGION = "us-east-1"
 
-READ_REQUESTS = 1000
-WRITE_REQUESTS = 1000
+READ_REQUESTS = 10
+WRITE_REQUESTS = 10
 
 READ_QUERY = "SELECT 1"
 WRITE_QUERY = "INSERT INTO actor (first_name, last_name) VALUES ('Bench', 'Mark')"
@@ -61,14 +61,16 @@ def run_benchmark(strategy_name):
     start = time.time()
 
     # READ
-    for _ in range(READ_REQUESTS):
+    for i in range(READ_REQUESTS):
         r = post_query(READ_QUERY)
+        print(f"read {i}")
         if r.status_code != 200:
             errors += 1
 
     # WRITE
-    for _ in range(WRITE_REQUESTS):
+    for j in range(WRITE_REQUESTS):
         r = post_query(WRITE_QUERY)
+        print(f"write {j}")
         if r.status_code != 200:
             errors += 1
 

@@ -104,7 +104,7 @@ print("DB HOSTS:", db_hosts)
 proxy_user_data = f"""#!/bin/bash
 apt update -y
 apt install -y python3-pip
-pip3 install flask pymysql requests
+pip3 install flask pymysql requests boto3
 
 cat <<EOF > /home/ubuntu/db_hosts.json
 {json.dumps(db_hosts, indent=2)}
