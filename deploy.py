@@ -1,203 +1,165 @@
 import boto3
 import requests
-from iam_setup import create_iam_role_and_profile
+import json
+import time
 
-
-
-ec2 = boto3.resource("ec2", region_name="us-east-1")
-ec2_client = boto3.client("ec2", region_name="us-east-1")
+REGION = "us-east-1"
+AMI_ID = "ami-0c398cb65a93047f2"
+KEY_NAME = "finalLabKey"
 SECURITY_GROUP_ID = "sg-07eb91b8897bb1816"
 PORT = 5000
 
-# User data script to install MySQL on Ubuntu
+ec2 = boto3.resource("ec2", region_name=REGION)
+ec2_client = boto3.client("ec2", region_name=REGION)
+
+# -------------------------------
+# USER DATA SCRIPTS
+# -------------------------------
+
 user_data_mysql = """#!/bin/bash
 apt update -y
 apt install -y mysql-server wget unzip
 systemctl enable mysql
 systemctl start mysql
 
-# Download Sakila
 until mysqladmin ping >/dev/null 2>&1; do
   sleep 2
 done
 
 cd /tmp
-
-if [ ! -f sakila-db.zip ]; then
-  wget https://downloads.mysql.com/docs/sakila-db.zip
-fi
-
+wget -q https://downloads.mysql.com/docs/sakila-db.zip
 unzip -o sakila-db.zip
 
-# Install Sakila database
-sudo mysql < sakila-db/sakila-schema.sql
-sudo mysql < sakila-db/sakila-data.sql
+mysql < sakila-db/sakila-schema.sql
+mysql < sakila-db/sakila-data.sql
 
-sudo mysql <<EOF
+mysql <<EOF
 CREATE USER IF NOT EXISTS 'estelle'@'%' IDENTIFIED BY 'estelle';
-GRANT ALL PRIVILEGES ON *.* TO 'estelle'@'%' WITH GRANT OPTION;
+GRANT ALL PRIVILEGES ON *.* TO 'estelle'@'%';
 FLUSH PRIVILEGES;
 EOF
-
 """
 
-large_instance_user_data = """#!/bin/bash
-apt update -y
-apt install -y python3-pip
-pip3 install flask pymysql boto3
-"""
+# -------------------------------
+# CREATE MYSQL INSTANCES
+# -------------------------------
 
-proxy_user_data = """#!/bin/bash
-apt update -y
-apt install -y python3-pip awscli
-pip3 install flask pymysql boto3 requests
-
-curl -L -o /home/ubuntu/proxy.py https://raw.githubusercontent.com/estellezeus/finalCloudLab/refs/heads/main/proxy.py
-sleep 40 && python3 /home/ubuntu/proxy.py &
-
-"""
-
-
-
-# Create 3 EC2 instances
-mysql_db_intances = ec2.create_instances(
-    ImageId="ami-0c398cb65a93047f2",  # Ubuntu 22.04 LTS
+mysql_instances = ec2.create_instances(
+    ImageId=AMI_ID,
     InstanceType="t2.micro",
     MinCount=3,
     MaxCount=3,
-    KeyName="finalLabKey",
-    SecurityGroupIds=[SECURITY_GROUP_ID], # this sg opens the port 22 for ssh connexions
+    KeyName=KEY_NAME,
+    SecurityGroupIds=[SECURITY_GROUP_ID],
     UserData=user_data_mysql
 )
 
-# Tag first instance as manager
-mysql_db_intances[0].create_tags(
-    Tags=[
-        {"Key": "Role", "Value": "manager"},
-        {"Key": "Name", "Value": "mysql-manager"}
-    ]
-)
+mysql_instances[0].create_tags(Tags=[
+    {"Key": "Role", "Value": "manager"},
+    {"Key": "Name", "Value": "mysql-manager"}
+])
 
-# Tag the other two as workers
-for i, instance in enumerate(mysql_db_intances[1:], start=1):
-    instance.create_tags(
-        Tags=[
-            {"Key": "Role", "Value": "worker"},
-            {"Key": "Name", "Value": f"mysql-worker-{i}"}
-        ]
-)
+for i, inst in enumerate(mysql_instances[1:], start=1):
+    inst.create_tags(Tags=[
+        {"Key": "Role", "Value": "worker"},
+        {"Key": "Name", "Value": f"mysql-worker-{i}"}
+    ])
 
-print("3 t2.micro instances created with MySQL installed")
-for inst in mysql_db_intances:
+for inst in mysql_instances:
     inst.wait_until_running()
     inst.reload()
 
+# -------------------------------
+# WRITE INSTANCE IDS FILE
+# -------------------------------
 
-# The instances ids in a file
-instance_ids = [j.id for j in mysql_db_intances]
+instance_ids = [i.id for i in mysql_instances]
 with open("mysql_instance_ids.txt", "w") as f:
-    for k in instance_ids:
-        f.write(k + "\n")
+    for iid in instance_ids:
+        f.write(iid + "\n")
 
-# Create role and profile
-print("==== Creating role and policy for the proxy ====")
-create_iam_role_and_profile()
+# -------------------------------
+# RESOLVE PRIVATE IPS
+# -------------------------------
 
+desc = ec2_client.describe_instances(InstanceIds=instance_ids)
 
-# Create the proxy instance
-proxy_instance = ec2.create_instances(
-    ImageId="ami-0c398cb65a93047f2",
+id_to_ip = {}
+for r in desc["Reservations"]:
+    for i in r["Instances"]:
+        id_to_ip[i["InstanceId"]] = i["PrivateIpAddress"]
+
+db_hosts = {
+    "master": id_to_ip[instance_ids[0]],
+    "workers": [id_to_ip[i] for i in instance_ids[1:]]
+}
+
+print("DB HOSTS:", db_hosts)
+
+# -------------------------------
+# CREATE PROXY INSTANCE
+# -------------------------------
+
+proxy_user_data = f"""#!/bin/bash
+apt update -y
+apt install -y python3-pip
+pip3 install flask pymysql requests
+
+cat <<EOF > /home/ubuntu/db_hosts.json
+{json.dumps(db_hosts, indent=2)}
+EOF
+
+curl -L -o /home/ubuntu/proxy.py https://raw.githubusercontent.com/estellezeus/finalCloudLab/main/proxy.py
+sleep 30
+python3 /home/ubuntu/proxy.py &
+"""
+
+proxy = ec2.create_instances(
+    ImageId=AMI_ID,
     InstanceType="t2.large",
     MinCount=1,
     MaxCount=1,
-    KeyName="finalLabKey",
+    KeyName=KEY_NAME,
     SecurityGroupIds=[SECURITY_GROUP_ID],
     UserData=proxy_user_data,
-    IamInstanceProfile={
-        "Name": "EC2-Proxy-Profile"
-    },
-    TagSpecifications=[
-        {
-            "ResourceType": "instance",
-            "Tags": [
-                {"Key": "Name", "Value": "mysql-proxy"},
-                {"Key": "Role", "Value": "proxy"}
-            ]
-        }
-    ]
-)
-print("Proxy created:", proxy_instance[0].id)
+    TagSpecifications=[{
+        "ResourceType": "instance",
+        "Tags": [
+            {"Key": "Name", "Value": "mysql-proxy"},
+            {"Key": "Role", "Value": "proxy"}
+        ]
+    }]
+)[0]
 
-for inst in proxy_instance:
-    inst.wait_until_running()
-    inst.reload()
+proxy.wait_until_running()
+proxy.reload()
 
-
-
-# Create the gateway instance
-
-gateway_instances = ec2.create_instances(
-    ImageId="ami-0c398cb65a93047f2",   # Ubuntu 22.04 LTS
-    InstanceType="t2.large",
-    MinCount=1,
-    MaxCount=1,
-    KeyName="finalLabKey",
-    SecurityGroupIds=[SECURITY_GROUP_ID],
-    UserData=large_instance_user_data,
-    TagSpecifications=[
-        {
-            "ResourceType": "instance",
-            "Tags": [
-                {"Key": "Name", "Value": "mysql-gateway"},
-                {"Key": "Role", "Value": "gateway"}
-            ]
-        }
-    ]
-)
-
-gateway_instance = gateway_instances[0]
-print("Gateway created:", gateway_instance.id)
-
-for inst in gateway_instances:
-    inst.wait_until_running()
-    inst.reload()
+# -------------------------------
+# OPEN PORT 5000
+# -------------------------------
 
 def get_my_public_ip():
-    return requests.get("https://checkip.amazonaws.com").text.strip()
+    return requests.get("https://checkip.amazonaws.com").text.strip() + "/32"
 
-def is_rule_present(sg, port, cidr):
-    for perm in sg.get("IpPermissions", []):
-        if perm.get("FromPort") == port and perm.get("ToPort") == port:
-            for r in perm.get("IpRanges", []):
-                if r.get("CidrIp") == cidr:
-                    return True
-    return False
+sg = ec2_client.describe_security_groups(GroupIds=[SECURITY_GROUP_ID])["SecurityGroups"][0]
+cidr = get_my_public_ip()
 
-def open_port_if_needed():
-    my_ip = get_my_public_ip() + "/32"
+already = any(
+    perm.get("FromPort") == PORT and
+    any(r["CidrIp"] == cidr for r in perm.get("IpRanges", []))
+    for perm in sg["IpPermissions"]
+)
 
-    sg = ec2_client.describe_security_groups(
-        GroupIds=[SECURITY_GROUP_ID]
-    )["SecurityGroups"][0]
-
-    if is_rule_present(sg, PORT, my_ip):
-        print(f"[INFO] Port {PORT} already open for {my_ip}")
-        return
-
+if not already:
     ec2_client.authorize_security_group_ingress(
         GroupId=SECURITY_GROUP_ID,
-        IpPermissions=[
-            {
-                "IpProtocol": "tcp",
-                "FromPort": PORT,
-                "ToPort": PORT,
-                "IpRanges": [{"CidrIp": my_ip}]
-            }
-        ]
+        IpPermissions=[{
+            "IpProtocol": "tcp",
+            "FromPort": PORT,
+            "ToPort": PORT,
+            "IpRanges": [{"CidrIp": cidr}]
+        }]
     )
 
-    print(f"[SUCCESS] Port {PORT} opened for {my_ip}")
-
-open_port_if_needed()
-
-
+print("Proxy public IP:", proxy.public_ip_address)
+print("Proxy endpoint: http://{}:5000/query".format(proxy.public_ip_address))
