@@ -7,7 +7,8 @@ REGION = "us-east-1"
 AMI_ID = "ami-0c398cb65a93047f2"
 KEY_NAME = "finalLabKey"
 SECURITY_GROUP_ID = "sg-07eb91b8897bb1816"
-PORT = 5000
+PROXY_PORT = 5000
+GATEKEEPER_PORT = 4000
 
 ec2 = boto3.resource("ec2", region_name=REGION)
 ec2_client = boto3.client("ec2", region_name=REGION)
@@ -135,6 +136,47 @@ proxy.wait_until_running()
 proxy.reload()
 
 # -------------------------------
+# CREATE GATEKEEPER INSTANCE
+# -------------------------------
+
+gatekeeper_user_data = f"""#!/bin/bash
+apt update -y
+apt install -y python3-pip
+pip3 install flask requests boto3
+
+curl -L -o /home/ubuntu/gatekeeper.py https://raw.githubusercontent.com/estellezeus/finalCloudLab/main/gatekeeper.py
+
+cat <<EOF >/home/ubuntu/gatekeeper.env
+GATEKEEPER_TOKEN=changeme
+PROXY_URL=http://{proxy.private_ip_address}:{PROXY_PORT}/query
+AWS_REGION={REGION}
+EOF
+
+echo 'source /home/ubuntu/gatekeeper.env' >> /home/ubuntu/.bashrc
+nohup env $(cat /home/ubuntu/gatekeeper.env | xargs) python3 /home/ubuntu/gatekeeper.py > /var/log/gatekeeper.log 2>&1 &
+"""
+
+gatekeeper = ec2.create_instances(
+    ImageId=AMI_ID,
+    InstanceType="t2.large",
+    MinCount=1,
+    MaxCount=1,
+    KeyName=KEY_NAME,
+    SecurityGroupIds=[SECURITY_GROUP_ID],
+    UserData=gatekeeper_user_data,
+    TagSpecifications=[{
+        "ResourceType": "instance",
+        "Tags": [
+            {"Key": "Name", "Value": "mysql-gatekeeper"},
+            {"Key": "Role", "Value": "gateway"}
+        ]
+    }]
+)[0]
+
+gatekeeper.wait_until_running()
+gatekeeper.reload()
+
+# -------------------------------
 # OPEN PORT 5000
 # -------------------------------
 
@@ -145,7 +187,7 @@ sg = ec2_client.describe_security_groups(GroupIds=[SECURITY_GROUP_ID])["Security
 cidr = get_my_public_ip()
 
 already = any(
-    perm.get("FromPort") == PORT and
+    perm.get("FromPort") == PROXY_PORT and
     any(r["CidrIp"] == cidr for r in perm.get("IpRanges", []))
     for perm in sg["IpPermissions"]
 )
@@ -155,11 +197,38 @@ if not already:
         GroupId=SECURITY_GROUP_ID,
         IpPermissions=[{
             "IpProtocol": "tcp",
-            "FromPort": PORT,
-            "ToPort": PORT,
+            "FromPort": PROXY_PORT,
+            "ToPort": PROXY_PORT,
             "IpRanges": [{"CidrIp": cidr}]
         }]
     )
 
 print("Proxy public IP:", proxy.public_ip_address)
 print("Proxy endpoint: http://{}:5000/query".format(proxy.public_ip_address))
+
+# -------------------------------
+# OPEN PORT 4000 FOR GATEKEEPER
+# -------------------------------
+
+sg = ec2_client.describe_security_groups(GroupIds=[SECURITY_GROUP_ID])["SecurityGroups"][0]
+cidr = get_my_public_ip()
+
+already = any(
+    perm.get("FromPort") == GATEKEEPER_PORT and
+    any(r["CidrIp"] == cidr for r in perm.get("IpRanges", []))
+    for perm in sg["IpPermissions"]
+)
+
+if not already:
+    ec2_client.authorize_security_group_ingress(
+        GroupId=SECURITY_GROUP_ID,
+        IpPermissions=[{
+            "IpProtocol": "tcp",
+            "FromPort": GATEKEEPER_PORT,
+            "ToPort": GATEKEEPER_PORT,
+            "IpRanges": [{"CidrIp": cidr}]
+        }]
+    )
+
+print("Gatekeeper public IP:", gatekeeper.public_ip_address)
+print("Gatekeeper endpoint: http://{}:{}/query".format(gatekeeper.public_ip_address, GATEKEEPER_PORT))
