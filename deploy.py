@@ -110,6 +110,12 @@ cat <<EOF > /home/ubuntu/db_hosts.json
 {json.dumps(db_hosts, indent=2)}
 EOF
 
+cat <<EOF > /home/ubuntu/mysql_instance_ids.txt
+{db_hosts["master"]}
+{db_hosts["workers"][0]}
+{db_hosts["workers"][1]}
+EOF
+
 curl -L -o /home/ubuntu/proxy.py https://raw.githubusercontent.com/estellezeus/finalCloudLab/main/proxy.py
 sleep 30
 python3 /home/ubuntu/proxy.py &
