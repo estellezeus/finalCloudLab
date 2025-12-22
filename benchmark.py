@@ -5,8 +5,8 @@ import boto3
 
 AWS_REGION = "us-east-1"
 
-READ_REQUESTS = 10
-WRITE_REQUESTS = 10
+READ_REQUESTS = 1000
+WRITE_REQUESTS = 1000
 
 READ_QUERY = "SELECT 1"
 WRITE_QUERY = "INSERT INTO actor (first_name, last_name) VALUES ('Bench', 'Mark')"

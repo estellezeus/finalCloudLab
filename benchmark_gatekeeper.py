@@ -15,9 +15,9 @@ PROXY_ROLE = os.getenv("PROXY_ROLE", "proxy")
 PROXY_STATS_URL = os.getenv("PROXY_STATS_URL", "")
 RESET_PROXY_STATS = os.getenv("RESET_PROXY_STATS", "true").lower() == "true"
 
-READ_REQUESTS = int(os.getenv("READ_REQUESTS", "10"))
-WRITE_REQUESTS = int(os.getenv("WRITE_REQUESTS", "10"))
-BLOCKED_REQUESTS = int(os.getenv("BLOCKED_REQUESTS", "3"))
+READ_REQUESTS = int(os.getenv("READ_REQUESTS", "1000"))
+WRITE_REQUESTS = int(os.getenv("WRITE_REQUESTS", "1000"))
+BLOCKED_REQUESTS = int(os.getenv("BLOCKED_REQUESTS", "30"))
 
 READ_QUERY = os.getenv("READ_QUERY", "SELECT 1")
 WRITE_QUERY = os.getenv(
