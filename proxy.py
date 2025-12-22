@@ -125,6 +125,17 @@ def query():
 def stats():
     return jsonify(STATS)
 
+@app.route("/stats/reset", methods=["POST"])
+def reset_stats():
+    STATS["proxy"]["READ"] = 0
+    STATS["proxy"]["WRITE"] = 0
+    STATS["manager"]["READ"] = 0
+    STATS["manager"]["WRITE"] = 0
+    for ip in STATS["workers"]:
+        STATS["workers"][ip]["READ"] = 0
+        STATS["workers"][ip]["WRITE"] = 0
+    return jsonify({"status": "ok"})
+
 # =========================
 # START
 # =========================

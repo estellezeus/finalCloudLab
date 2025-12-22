@@ -1,0 +1,29 @@
+{
+  "strategy": "random",
+  "read_requests": 10,
+  "write_requests": 10,
+  "total_requests": 20,
+  "errors": 20,
+  "total_time_sec": 61.41,
+  "avg_latency_ms": 3070.5,
+  "stats": {
+    "manager": {
+      "READ": 0,
+      "WRITE": 20
+    },
+    "proxy": {
+      "READ": 20,
+      "WRITE": 20
+    },
+    "workers": {
+      "172.31.26.95": {
+        "READ": 10,
+        "WRITE": 0
+      },
+      "172.31.30.159": {
+        "READ": 10,
+        "WRITE": 0
+      }
+    }
+  }
+}

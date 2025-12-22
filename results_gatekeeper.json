@@ -1,0 +1,45 @@
+{
+  "gatekeeper_url": "http://100.31.208.139:4000",
+  "unauthorized_status": 401,
+  "read_requests": 10,
+  "write_requests": 10,
+  "blocked_requests": 3,
+  "total_requests": 24,
+  "errors": 20,
+  "total_time_sec": 61.92,
+  "avg_latency_ms": 2692.02,
+  "latency_samples_ms": [
+    3071.29,
+    3086.49,
+    3103.77,
+    3081.33,
+    3086.81,
+    3087.06,
+    3071.32,
+    3080.23,
+    3078.9,
+    3066.23
+  ],
+  "proxy_stats_url": "http://54.227.16.92:5000/stats",
+  "proxy_stats": {
+    "manager": {
+      "READ": 0,
+      "WRITE": 50
+    },
+    "proxy": {
+      "READ": 50,
+      "WRITE": 50
+    },
+    "workers": {
+      "172.31.26.95": {
+        "READ": 25,
+        "WRITE": 0
+      },
+      "172.31.30.159": {
+        "READ": 25,
+        "WRITE": 0
+      }
+    }
+  },
+  "proxy_stats_error": null
+}

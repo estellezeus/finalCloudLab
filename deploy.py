@@ -5,8 +5,8 @@ import time
 
 REGION = "us-east-1"
 AMI_ID = "ami-0c398cb65a93047f2"
-KEY_NAME = "finalLabKey"
-SECURITY_GROUP_ID = "sg-07eb91b8897bb1816"
+KEY_NAME = "cloud_key"
+SECURITY_GROUP_ID = "sg-062f74efe31647b57"
 PROXY_PORT = 5000
 GATEKEEPER_PORT = 4000
 

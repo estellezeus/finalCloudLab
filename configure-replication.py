@@ -3,7 +3,7 @@ import paramiko
 import time
 
 REGION = "us-east-1"
-KEY_PATH = "finalLabKey.pem"
+KEY_PATH = "cloud_key.pem"
 SSH_USER = "ubuntu"
 
 # Lire les IDs
