@@ -7,7 +7,7 @@ import boto3
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 GATEKEEPER_PORT = int(os.getenv("GATEKEEPER_PORT", "4000"))
 GATEKEEPER_ROLE = os.getenv("GATEKEEPER_ROLE", "gateway")
-GATEKEEPER_TOKEN = os.getenv("GATEKEEPER_TOKEN", "changeme")
+GATEKEEPER_TOKEN = os.getenv("GATEKEEPER_TOKEN", "estelle")
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "5"))
 
 PROXY_PORT = int(os.getenv("PROXY_PORT", "5000"))

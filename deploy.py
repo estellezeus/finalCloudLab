@@ -147,7 +147,7 @@ pip3 install flask requests boto3
 curl -L -o /home/ubuntu/gatekeeper.py https://raw.githubusercontent.com/estellezeus/finalCloudLab/main/gatekeeper.py
 
 cat <<EOF >/home/ubuntu/gatekeeper.env
-GATEKEEPER_TOKEN=changeme
+GATEKEEPER_TOKEN=estelle
 PROXY_URL=http://{proxy.private_ip_address}:{PROXY_PORT}/query
 AWS_REGION={REGION}
 EOF
