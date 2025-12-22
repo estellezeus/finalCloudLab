@@ -183,14 +183,11 @@ gatekeeper.wait_until_running()
 gatekeeper.reload()
 
 # -------------------------------
-# OPEN PORT 5000
+# OPEN PORT 5000 (PUBLIC)
 # -------------------------------
 
-def get_my_public_ip():
-    return requests.get("https://checkip.amazonaws.com").text.strip() + "/32"
-
 sg = ec2_client.describe_security_groups(GroupIds=[SECURITY_GROUP_ID])["SecurityGroups"][0]
-cidr = get_my_public_ip()
+cidr = "0.0.0.0/0"
 
 already = any(
     perm.get("FromPort") == PROXY_PORT and
@@ -213,11 +210,11 @@ print("Proxy public IP:", proxy.public_ip_address)
 print("Proxy endpoint: http://{}:5000/query".format(proxy.public_ip_address))
 
 # -------------------------------
-# OPEN PORT 4000 FOR GATEKEEPER
+# OPEN PORT 4000 FOR GATEKEEPER (PUBLIC)
 # -------------------------------
 
 sg = ec2_client.describe_security_groups(GroupIds=[SECURITY_GROUP_ID])["SecurityGroups"][0]
-cidr = get_my_public_ip()
+cidr = "0.0.0.0/0"
 
 already = any(
     perm.get("FromPort") == GATEKEEPER_PORT and

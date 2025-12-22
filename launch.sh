@@ -16,7 +16,7 @@ python benchmark.py
 sleep 10
 
 echo "==== Benchmarking the gatekeeper ===="
-python deploy.py
+python benchmark_gatekeeper.py
 
 sleep 10
 
